@@ -8,6 +8,11 @@ Compares three remediation approaches:
 3. Clean Futures Surface Facility Treatment
 """
 
+# ============================================================================
+# VERSION
+# ============================================================================
+APP_VERSION = "1.1.1"
+
 import streamlit as st
 import pandas as pd
 import json
@@ -322,12 +327,271 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def load_facilities_database():
-    """Load the facilities database from JSON"""
-    db_path = Path('/home/claude/permian_facilities_db.json')
-    if db_path.exists():
-        with open(db_path, 'r') as f:
-            return json.load(f)
-    return {"landfills": [], "clean_futures_facilities": []}
+    """Return the facilities database (embedded in code for reliable deployment)"""
+    return {
+        "landfills": [
+            {
+                "id": "LF001",
+                "company": "MILESTONE",
+                "site_name": "UPTON",
+                "county": "GLASSCOCK",
+                "latitude": 31.499316,
+                "longitude": -101.931524,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF002",
+                "company": "MILESTONE",
+                "site_name": "STANTON LANDFILL",
+                "county": "HOWARD",
+                "latitude": 31.981708,
+                "longitude": -101.771822,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF003",
+                "company": "R360",
+                "site_name": "WISHBONE",
+                "county": "HOWARD",
+                "latitude": 32.201328,
+                "longitude": -101.737306,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF004",
+                "company": "REPUBLIC",
+                "site_name": "SOUTH ODESSA",
+                "county": "MIDLAND",
+                "latitude": 31.77227,
+                "longitude": -102.542218,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF005",
+                "company": "US ECOLOGY",
+                "site_name": "REAGAN",
+                "county": "GLASSCOCK",
+                "latitude": 31.418575,
+                "longitude": -101.691314,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF006",
+                "company": "WM",
+                "site_name": "BIG LAKE",
+                "county": "GLASSCOCK",
+                "latitude": 31.344978,
+                "longitude": -101.502558,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF007",
+                "company": "WM",
+                "site_name": "HOWARD",
+                "county": "HOWARD",
+                "latitude": 32.175082,
+                "longitude": -101.665695,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF008",
+                "company": "MILESTONE",
+                "site_name": "ORLA EWF",
+                "county": "LOVING",
+                "latitude": 31.865379,
+                "longitude": -103.847547,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF009",
+                "company": "R360",
+                "site_name": "RED BLUFF",
+                "county": "CULBERSON",
+                "latitude": 31.9861,
+                "longitude": -104.021569,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF010",
+                "company": "WM",
+                "site_name": "ORLA LANDFILL",
+                "county": "LOVING",
+                "latitude": 31.824627,
+                "longitude": -103.910185,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF011",
+                "company": "WM",
+                "site_name": "DEEP SIX",
+                "county": "REEVES",
+                "latitude": 31.286899,
+                "longitude": -103.392814,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            },
+            {
+                "id": "LF012",
+                "company": "REPUBLIC",
+                "site_name": "REEVES",
+                "county": "REEVES",
+                "latitude": 31.654254,
+                "longitude": -103.637612,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF013",
+                "company": "DESERT ENVIRONMENTAL",
+                "site_name": "DRF MENTONE",
+                "county": "LOVING",
+                "latitude": 31.960808,
+                "longitude": -103.75866,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": True,
+                "backfill_cost_cy": 10
+            },
+            {
+                "id": "LF014",
+                "company": "US ECOLOGY",
+                "site_name": "PECOS",
+                "county": "REEVES",
+                "latitude": 31.320076,
+                "longitude": -103.621133,
+                "accepts_tph": True,
+                "tph_max_mgkg": 5000,
+                "accepts_chloride": True,
+                "chloride_max_mgkg": 10000,
+                "disposal_cost_cy": 25,
+                "backfill_available": False,
+                "backfill_cost_cy": 0
+            }
+        ],
+        "clean_futures_facilities": [
+            {
+                "id": "CF001",
+                "facility_name": "Clean Futures Facility 1",
+                "region": "Delaware Basin",
+                "latitude": 31.9195,
+                "longitude": -103.6285,
+                "processing_cost_cy": 25,
+                "includes_backfill": True,
+                "backfill_cost_cy": 0,
+                "typical_turnaround_days": 30,
+                "notes": "Treated soil returned to site"
+            },
+            {
+                "id": "CF002",
+                "facility_name": "Clean Futures Facility 2",
+                "region": "Midland Basin",
+                "latitude": 32.1022,
+                "longitude": -102.4654,
+                "processing_cost_cy": 25,
+                "includes_backfill": True,
+                "backfill_cost_cy": 0,
+                "typical_turnaround_days": 30,
+                "notes": "Treated soil returned to site"
+            },
+            {
+                "id": "CF003",
+                "facility_name": "Clean Futures Facility 3",
+                "region": "Central Basin",
+                "latitude": 31.3458,
+                "longitude": -101.7301,
+                "processing_cost_cy": 25,
+                "includes_backfill": True,
+                "backfill_cost_cy": 0,
+                "typical_turnaround_days": 30,
+                "notes": "Treated soil returned to site"
+            },
+            {
+                "id": "CF004",
+                "facility_name": "Clean Futures Facility 4",
+                "region": "Eastern Basin",
+                "latitude": 32.3109,
+                "longitude": -101.8421,
+                "processing_cost_cy": 25,
+                "includes_backfill": True,
+                "backfill_cost_cy": 0,
+                "typical_turnaround_days": 30,
+                "notes": "Treated soil returned to site"
+            }
+        ]
+    }
 
 def find_nearest_qualified_landfill(lat, lon, tph_level, chloride_level, needs_backfill, db):
     """Find the nearest landfill that accepts the contamination levels"""
@@ -668,9 +932,10 @@ def generate_recommendation(dig_haul, onsite, surface_facility, user_priorities)
 def show_welcome_page():
     """Display the welcome page"""
     
-    st.markdown("""
+    st.markdown(f"""
         <div class="welcome-box">
             <div class="welcome-title">Clean Futures Solution Recommendation Tool</div>
+            <div style="color: #81c995; font-size: 0.9rem; margin-bottom: 0.5rem;">Version {APP_VERSION}</div>
             <div class="welcome-subtitle">Intelligent Decision Support for Soil Remediation in the Permian Basin</div>
             <div class="mission-statement">
                 At Clean Futures, we're committed to providing innovative solutions that make our world 
@@ -1425,13 +1690,13 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
         <div style='text-align: center; color: #5a8a6f; padding: 2rem 0;'>
             <p style='margin: 0; font-family: "Crimson Pro", serif; font-size: 1.2rem;'>
                 <strong>Clean Futures</strong> | Making Our World Better and Cleaner
             </p>
             <p style='margin: 0.5rem 0 0 0; font-family: "Work Sans", sans-serif; font-size: 0.9rem;'>
-                Permian Basin Solution Recommendation Tool | v1.0
+                Permian Basin Solution Recommendation Tool | v{APP_VERSION}
             </p>
         </div>
     """, unsafe_allow_html=True)
