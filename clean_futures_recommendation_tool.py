@@ -772,25 +772,33 @@ def show_simple_questionnaire():
         st.markdown("### 📍 Site Location")
         col1, col2 = st.columns(2)
         with col1:
-            site_lat = st.number_input("Latitude", value=31.9, min_value=30.0, max_value=35.0, format="%.4f")
+            site_lat = st.number_input("Latitude", value=32.2366, min_value=30.0, max_value=35.0, format="%.4f")
         with col2:
-            site_lon = st.number_input("Longitude", value=-102.0, min_value=-105.0, max_value=-100.0, format="%.4f")
+            site_lon = st.number_input("Longitude", value=-103.9563, min_value=-105.0, max_value=-100.0, format="%.4f")
         
         st.markdown("### 🧪 Contamination Details")
         contam_type = st.selectbox("Contamination Type", 
                                    ["TPH Only", "Chloride Only", "Both TPH and Chloride"])
         
+        # Always show both input fields
         col1, col2 = st.columns(2)
         with col1:
-            if contam_type in ["TPH Only", "Both TPH and Chloride"]:
-                tph_level = st.number_input("TPH Level (mg/kg)", value=1000, min_value=0, max_value=10000)
-            else:
-                tph_level = 0
+            tph_level = st.number_input(
+                "TPH Level (mg/kg)", 
+                value=1000, 
+                min_value=0, 
+                max_value=10000,
+                help="Enter 0 if not applicable"
+            )
+        
         with col2:
-            if contam_type in ["Chloride Only", "Both TPH and Chloride"]:
-                chloride_level = st.number_input("Chloride Level (mg/kg)", value=5000, min_value=0, max_value=20000)
-            else:
-                chloride_level = 0
+            chloride_level = st.number_input(
+                "Chloride Level (mg/kg)", 
+                value=5000, 
+                min_value=0, 
+                max_value=20000,
+                help="Enter 0 if not applicable"
+            )
         
         st.markdown("### 📏 Site Dimensions")
         col1, col2 = st.columns(2)
@@ -822,12 +830,16 @@ def show_simple_questionnaire():
         submitted = st.form_submit_button("🔍 Analyze Solutions", type="primary", use_container_width=True)
         
         if submitted:
+            # Adjust contamination levels based on type selection
+            final_tph = tph_level if contam_type in ["TPH Only", "Both TPH and Chloride"] else 0
+            final_chloride = chloride_level if contam_type in ["Chloride Only", "Both TPH and Chloride"] else 0
+            
             # Store in session state
             st.session_state.analysis = {
                 'site_lat': site_lat,
                 'site_lon': site_lon,
-                'tph_level': tph_level,
-                'chloride_level': chloride_level,
+                'tph_level': final_tph,
+                'chloride_level': final_chloride,
                 'volume_cy': volume_cy,
                 'needs_backfill': needs_backfill,
                 'priorities': {
@@ -1137,25 +1149,30 @@ def show_results():
     for opt_type, opt in options_list:
         is_recommended = (opt_type == recommended)
         
+        # Build key details string
+        if opt_type == 'dig_haul':
+            key_details = f"→ {opt['landfill_name']}\n({opt['distance_miles']:.0f} mi)"
+            if not opt.get('backfill_available_at_landfill'):
+                key_details += "\n⚠️ Separate backfill source needed"
+            disposal_liability = "Permanent"
+        elif opt_type == 'onsite':
+            key_details = "Treated on your site\nSoil stays in place"
+            disposal_liability = "None"
+        else:  # surface
+            key_details = f"→ {opt['facility_name']}\n({opt['distance_miles']:.0f} mi)"
+            disposal_liability = "None"
+        
         row = {
             '': '⭐ RECOMMENDED' if is_recommended else '',
-            'Solution': opt['option_name'],
+            'Solution': opt['option_name'].replace('Clean Futures ', 'CF '),
             'Total Cost': f"${opt['total_cost']:,.0f}",
-            'Cost per CY': f"${opt['cost_per_cy']:.2f}",
+            'Cost/CY': f"${opt['cost_per_cy']:.2f}",
             'Timeline': f"{opt['project_days']} days",
-            'CO₂ Emissions': f"{opt['co2_tons']:.2f} tons",
-            'Backfill Included': '✅ Yes' if opt.get('includes_backfill', False) else '❌ No',
+            'CO₂': f"{opt['co2_tons']:.1f} tons",
+            'Backfill': '✅ Included' if opt.get('includes_backfill', False) else '❌ Separate',
+            'Liability': disposal_liability,
+            'Details': key_details
         }
-        
-        # Add specific details
-        if opt_type == 'dig_haul':
-            row['Key Details'] = f"{opt['distance_miles']:.0f} mi to landfill"
-            if not opt.get('backfill_available_at_landfill'):
-                row['Key Details'] += " ⚠️ Separate backfill needed"
-        elif opt_type == 'onsite':
-            row['Key Details'] = "Soil treated in place"
-        else:  # surface
-            row['Key Details'] = f"{opt['distance_miles']:.0f} mi to facility"
         
         comparison_data.append(row)
     
@@ -1167,16 +1184,26 @@ def show_results():
         hide_index=True,
         use_container_width=True,
         column_config={
-            '': st.column_config.TextColumn(width="small"),
+            '': st.column_config.TextColumn(label="", width="small"),
             'Solution': st.column_config.TextColumn(width="medium"),
-            'Total Cost': st.column_config.TextColumn(width="medium"),
-            'Cost per CY': st.column_config.TextColumn(width="small"),
+            'Total Cost': st.column_config.TextColumn(width="small"),
+            'Cost/CY': st.column_config.TextColumn(width="small"),
             'Timeline': st.column_config.TextColumn(width="small"),
-            'CO₂ Emissions': st.column_config.TextColumn(width="small"),
-            'Backfill Included': st.column_config.TextColumn(width="small"),
-            'Key Details': st.column_config.TextColumn(width="medium"),
+            'CO₂': st.column_config.TextColumn(width="small"),
+            'Backfill': st.column_config.TextColumn(width="small"),
+            'Liability': st.column_config.TextColumn(width="small"),
+            'Details': st.column_config.TextColumn(width="large"),
         }
     )
+    
+    # Add recommendation callout below the table
+    st.markdown("---")
+    
+    # Show which option is recommended with explanation
+    rec_opt = next((opt for opt_type, opt in options_list if opt_type == recommended), None)
+    if rec_opt:
+        rec_name = rec_opt['option_name']
+        st.success(f"**⭐ Recommended Solution: {rec_name}** — Best match for your stated priorities (Cost: {analysis['priorities']['cost']}, Speed: {analysis['priorities']['speed']}, ESG: {analysis['priorities']['esg']})")
     
     st.markdown("---")
     
