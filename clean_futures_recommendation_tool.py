@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 import streamlit as st
 import pandas as pd
@@ -603,10 +603,7 @@ def find_nearest_qualified_landfill(lat, lon, tph_level, chloride_level, needs_b
         accepts_chloride = chloride_level <= lf['chloride_max_mgkg'] if chloride_level > 0 else True
         
         if accepts_tph and accepts_chloride:
-            # If backfill is needed, prefer landfills with backfill
-            if needs_backfill and not lf['backfill_available']:
-                continue  # Skip landfills without backfill if it's needed
-            
+            # Include all qualified landfills - we'll note backfill availability separately
             distance = haversine_distance(lat, lon, lf['latitude'], lf['longitude'])
             qualified.append({
                 'landfill': lf,
