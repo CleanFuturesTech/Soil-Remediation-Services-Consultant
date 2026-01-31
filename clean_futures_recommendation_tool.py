@@ -240,21 +240,35 @@ def determine_state_county(lat, lon, db):
     # Texas/New Mexico boundary is roughly at -103° longitude
     state = "Texas" if lon > -103.0 else "New Mexico"
     
-    # Find nearest county from the landfill database (use county centroids)
+    # Find nearest county from the landfill database
     county_distances = {}
-    counties_seen = set()
     
     for lf in db['landfills']:
         county = lf['county']
-        if county not in counties_seen:
-            # Use first landfill in each county as representative
-            distance = haversine_distance(lat, lon, lf['latitude'], lf['longitude'])
+        # Calculate distance to this landfill (use as proxy for county)
+        distance = haversine_distance(lat, lon, lf['latitude'], lf['longitude'])
+        
+        # Keep the closest distance for each county
+        if county not in county_distances or distance < county_distances[county]:
             county_distances[county] = distance
-            counties_seen.add(county)
     
-    nearest_county = min(county_distances, key=county_distances.get) if county_distances else "Unknown"
+    if county_distances:
+        # Return the county with the closest landfill
+        nearest_county = min(county_distances, key=county_distances.get)
+        return state, nearest_county
     
-    return state, nearest_county
+    # Fallback: try to estimate based on coordinates
+    if state == "Texas":
+        # Rough Texas Permian Basin county estimates
+        if lon > -101.5:
+            return state, "HOWARD"
+        elif lon > -102.5:
+            return state, "MIDLAND"
+        else:
+            return state, "REEVES"
+    else:
+        # New Mexico side
+        return state, "LEA"
 
 def get_soil_type(lat, lon, state):
     """Estimate soil type based on location in Permian Basin"""
@@ -996,8 +1010,14 @@ def show_results():
         db
     )
     
-    distance_to_landfill = nearest_lf['distance_miles'] if nearest_lf else "N/A"
-    nearest_landfill_name = f"{nearest_lf['landfill']['company']} - {nearest_lf['landfill']['site_name']}" if nearest_lf else "None found"
+    if nearest_lf:
+        distance_to_landfill = nearest_lf['distance_miles']
+        nearest_landfill_name = f"{nearest_lf['landfill']['company']} - {nearest_lf['landfill']['site_name']}"
+        distance_display = f"{distance_to_landfill:.1f} mi"
+    else:
+        distance_to_landfill = None
+        nearest_landfill_name = "None found"
+        distance_display = "N/A"
     
     # Display location info in columns
     col1, col2, col3 = st.columns(3)
@@ -1029,7 +1049,7 @@ def show_results():
         st.markdown(f"""
         <div class="metric-box">
             <p class="metric-label">Nearest Landfill</p>
-            <p class="metric-value" style="font-size: 1.3rem;">{distance_to_landfill:.1f} mi</p>
+            <p class="metric-value" style="font-size: 1.3rem;">{distance_display}</p>
             <p style="color: #5a8a6f; margin: 0.5rem 0 0 0; font-size: 0.85rem;">
                 {nearest_landfill_name}
             </p>
