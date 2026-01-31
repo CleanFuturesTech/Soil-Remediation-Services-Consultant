@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
 
 import streamlit as st
 import pandas as pd
@@ -680,7 +680,7 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
         loader_rate = 125
         work_hours_per_day = 10
         disposal_cost = landfill['disposal_cost_cy']
-        backfill_cost = landfill['backfill_cost_cy'] if needs_backfill else 0
+        backfill_cost = 10 if needs_backfill else 0  # Always $10/CY in simple mode
     
     # Trip time calculation (simplified)
     avg_speed_mph = 45
@@ -745,11 +745,22 @@ def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeabilit
                                 tph_level=0, chloride_level=0, advanced_params=None):
     """Calculate costs and metrics for Onsite Remediation option"""
     
-    # Processing cost
+    # Simple mode: flat $30/CY rate
+    # Advanced mode: will use detailed calculation with mobilization, amendments, etc.
     if advanced_params:
-        processing_cost_cy = advanced_params.get('onsite_processing_cost_cy', 25)
+        processing_cost_cy = advanced_params.get('onsite_processing_cost_cy', 30)
+        # Advanced mode could add mobilization, amendments, etc. here
+        total_processing_cost = volume_cy * processing_cost_cy
+        mobilization_cost = advanced_params.get('mobilization_cost', 0)
+        amendment_cost = advanced_params.get('amendment_cost', 0)
+        total_cost = total_processing_cost + mobilization_cost + amendment_cost
     else:
-        processing_cost_cy = 25
+        # Simple mode: flat $30/CY all-in rate
+        processing_cost_cy = 30
+        total_processing_cost = volume_cy * processing_cost_cy
+        mobilization_cost = 0  # Included in flat rate
+        amendment_cost = 0  # Included in flat rate
+        total_cost = total_processing_cost
     
     # Treatment duration estimation based on soil permeability
     base_treatment_days = 45
@@ -768,19 +779,6 @@ def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeabilit
     
     treatment_days = int(treatment_days)
     
-    # Costs
-    total_processing_cost = volume_cy * processing_cost_cy
-    
-    # Mobilization cost (estimated)
-    mobilization_cost = 5000 if volume_cy < 1000 else 10000
-    
-    # Amendment costs (estimated based on permeability)
-    if soil_permeability == 'low':
-        amendment_cost = volume_cy * 3  # Need more amendments for poor permeability
-    else:
-        amendment_cost = volume_cy * 1
-    
-    total_cost = total_processing_cost + mobilization_cost + amendment_cost
     cost_per_cy = total_cost / volume_cy
     
     # CO2 estimation (much lower than dig & haul)
@@ -799,7 +797,8 @@ def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeabilit
         'co2_tons': co2_tons,
         'includes_backfill': True,
         'soil_returned_clean': True,
-        'permeability_factor': soil_permeability
+        'permeability_factor': soil_permeability,
+        'rate_per_cy': processing_cost_cy
     }
 
 def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
@@ -1495,11 +1494,17 @@ def show_results():
                     'Backfill': f"${opt['backfill_cost']:,.0f}",
                 }
             elif opt_type == 'onsite':
-                breakdown = {
-                    'Processing': f"${opt['processing_cost']:,.0f}",
-                    'Mobilization': f"${opt['mobilization_cost']:,.0f}",
-                    'Amendments': f"${opt['amendment_cost']:,.0f}",
-                }
+                # Simple mode shows flat rate
+                if opt['mobilization_cost'] == 0 and opt['amendment_cost'] == 0:
+                    breakdown = {
+                        f"Flat Rate ({opt.get('rate_per_cy', 30)}/CY)": f"${opt['processing_cost']:,.0f}",
+                    }
+                else:
+                    breakdown = {
+                        'Processing': f"${opt['processing_cost']:,.0f}",
+                        'Mobilization': f"${opt['mobilization_cost']:,.0f}",
+                        'Amendments': f"${opt['amendment_cost']:,.0f}",
+                    }
             else:  # surface
                 breakdown = {
                     'Trucking': f"${opt['trucking_cost']:,.0f}",
@@ -1510,6 +1515,129 @@ def show_results():
                 st.write(f"• {category}: {cost}")
             
             st.markdown(f"**Total: ${opt['total_cost']:,.0f}**")
+    
+    st.markdown("---")
+    
+    # ========================================================================
+    # HOW COSTS WERE CALCULATED
+    # ========================================================================
+    
+    st.markdown("### 📐 How Costs Were Calculated")
+    
+    with st.expander("**Dig & Haul to Landfill** - Calculation Details", expanded=False):
+        dh = dig_haul
+        if dh:
+            st.markdown(f"""
+**Parameters Used:**
+| Parameter | Value |
+|-----------|-------|
+| Volume | {analysis['volume_cy']:,.0f} CY |
+| Distance to Landfill | {dh['distance_miles']:.1f} miles |
+| Truck Capacity | 18 CY |
+| Number of Trucks | 3 |
+| Truck Hourly Rate | $85/hr |
+| Excavator Rate | $150/hr |
+| Loader Rate | $125/hr |
+| Work Hours/Day | 10 hours |
+| Travel Speed | 45 mph |
+| Disposal Cost | $25/CY |
+| Backfill Cost | $10/CY |
+
+**Step-by-Step Calculation:**
+
+1. **Trip Time:**
+   - Travel time (one way) = {dh['distance_miles']:.1f} mi ÷ 45 mph = {dh['distance_miles']/45:.2f} hours
+   - Trip time = Load (0.25 hr) + Travel ({dh['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({dh['distance_miles']/45:.2f} hr) + Load backfill (0.25 hr)
+   - **Total trip time = {0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25:.2f} hours**
+
+2. **Number of Trips & Duration:**
+   - Number of trips = {analysis['volume_cy']:,.0f} CY ÷ 18 CY/truck = **{math.ceil(analysis['volume_cy']/18)} trips**
+   - Trips per truck per day = 10 hrs ÷ {0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25:.2f} hrs = {10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} trips
+   - Total trips per day = {10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} × 3 trucks = {3*10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} trips/day
+
+3. **Costs:**
+   - Equipment = ($150 + $125) × project hours = **${dh['equipment_cost']:,.0f}**
+   - Trucking = trips × trip time × $85/hr = **${dh['trucking_cost']:,.0f}**
+   - Disposal = {analysis['volume_cy']:,.0f} CY × $25 = **${dh['disposal_cost']:,.0f}**
+   - Backfill = {analysis['volume_cy']:,.0f} CY × $10 = **${dh['backfill_cost']:,.0f}**
+
+4. **TOTAL = ${dh['total_cost']:,.0f}** (${dh['cost_per_cy']:.2f}/CY)
+            """)
+        else:
+            st.write("No qualified landfill found for this contamination level.")
+    
+    with st.expander("**Clean Futures Onsite Remediation** - Calculation Details", expanded=False):
+        os = onsite
+        if os:
+            st.markdown(f"""
+**Simple Mode Calculation:**
+
+In simple mode, onsite remediation uses a **flat all-inclusive rate of $30.00 per cubic yard**.
+
+This rate includes:
+- Mobilization/demobilization
+- Treatment equipment
+- Labor
+- Soil amendments
+- Testing and verification
+- Clean soil returned in place (no backfill purchase needed)
+
+**Calculation:**
+- Volume: {analysis['volume_cy']:,.0f} CY
+- Rate: $30.00/CY
+- **TOTAL = {analysis['volume_cy']:,.0f} × $30.00 = ${os['total_cost']:,.0f}**
+
+**Timeline Estimate:**
+- Base treatment duration: 45 days (medium permeability soil)
+- Adjusted for soil type and contamination levels
+- **Estimated duration: {os['project_days']} days**
+
+**CO₂ Emissions:**
+- Estimated at 0.1 gallons fuel per CY (minimal equipment, no trucking)
+- **{os['co2_tons']:.2f} tons CO₂**
+
+*Note: Advanced mode allows detailed breakdown of mobilization, amendments, and processing costs.*
+            """)
+    
+    with st.expander("**Clean Futures Surface Facility** - Calculation Details", expanded=False):
+        sf = surface
+        if sf:
+            st.markdown(f"""
+**Parameters Used:**
+| Parameter | Value |
+|-----------|-------|
+| Volume | {analysis['volume_cy']:,.0f} CY |
+| Distance to Facility | {sf['distance_miles']:.1f} miles |
+| Truck Capacity | 18 CY |
+| Number of Trucks | 3 |
+| Truck Hourly Rate | $85/hr |
+| Processing Cost | $25/CY |
+| Travel Speed | 45 mph |
+
+**Step-by-Step Calculation:**
+
+1. **Trip Time:**
+   - Travel time (one way) = {sf['distance_miles']:.1f} mi ÷ 45 mph = {sf['distance_miles']/45:.2f} hours
+   - Trip time = Load (0.25 hr) + Travel ({sf['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({sf['distance_miles']/45:.2f} hr) + Load clean soil (0.25 hr)
+   - **Total trip time = {0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25:.2f} hours**
+
+2. **Trucking:**
+   - Number of trips = {analysis['volume_cy']:,.0f} CY ÷ 18 CY = **{math.ceil(analysis['volume_cy']/18)} trips**
+   - Total truck hours = {math.ceil(analysis['volume_cy']/18)} × {0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25:.2f} = {math.ceil(analysis['volume_cy']/18) * (0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25):.1f} hours
+   - Trucking cost = {math.ceil(analysis['volume_cy']/18) * (0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25):.1f} hrs × $85 = **${sf['trucking_cost']:,.0f}**
+
+3. **Processing:**
+   - Processing = {analysis['volume_cy']:,.0f} CY × $25/CY = **${sf['processing_cost']:,.0f}**
+
+4. **TOTAL = ${sf['total_cost']:,.0f}** (${sf['cost_per_cy']:.2f}/CY)
+
+**Notes:**
+- Clean treated soil is returned to your site (backfill included)
+- Turnaround time: {sf['project_days']} days at facility
+- No long-term disposal liability
+            """)
+        else:
+            st.write("No Clean Futures facility found.")
     
     st.markdown("---")
     
