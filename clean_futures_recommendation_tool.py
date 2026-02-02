@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 import streamlit as st
 import pandas as pd
@@ -846,15 +846,17 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
     """
     Calculate costs and metrics for Surface Facility option.
     
-    Implements bottleneck analysis for hauling phase:
-    - Truck capacity/day limited by trips and truck count
-    - Equipment capacity/day limits loading speed
-    - Actual daily haul rate = MIN(truck capacity, equipment capacity)
+    KEY CONCEPT: Operators drop off contaminated soil and pick up clean backfill
+    (from previously treated stockpile) on the SAME TRIP. Treatment happens after
+    the operator leaves and doesn't affect their timeline.
     
-    Timeline includes:
-    - Days to haul contaminated soil to facility
-    - Facility processing time (30 days)
-    - Clean soil returned (usually batched during processing)
+    This makes Surface Facility timeline = just the hauling days (same as Dig & Haul).
+    
+    Competitive advantages over landfill:
+    - No disposal liability (soil is treated, not buried)
+    - Backfill included (pick up clean soil same trip)
+    - Faster/more convenient than sourcing separate backfill
+    - Environmentally friendly alternative
     """
     
     # Find nearest CF facility
@@ -892,10 +894,10 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
     # Trip calculations
     avg_speed_mph = 45
     travel_time_hours = distance_miles / avg_speed_mph
-    loading_time = 0.25
-    unloading_time = 0.5
+    loading_time = 0.25  # Load contaminated soil at site
+    unloading_time = 0.5  # Drop off contaminated, pick up clean backfill at facility
     
-    # Round trip time
+    # Round trip time (drop off dirty, pick up clean - all in one trip)
     trip_time = loading_time + travel_time_hours + unloading_time + travel_time_hours + loading_time
     
     # BOTTLENECK ANALYSIS
@@ -911,8 +913,9 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
         bottleneck = "Loading Equipment"
         actual_daily_capacity = equipment_capacity_per_day
     
-    # Calculate hauling duration
-    haul_days = math.ceil(volume_cy / actual_daily_capacity)
+    # Calculate hauling duration - THIS IS THE TOTAL PROJECT TIME
+    # (No waiting for treatment - operator picks up clean backfill same trip)
+    project_days = math.ceil(volume_cy / actual_daily_capacity)
     
     # Number of trips
     num_trips = math.ceil(volume_cy / truck_capacity_cy)
@@ -922,18 +925,14 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
     trucking_cost = total_truck_hours * truck_hourly_rate
     processing_cost = volume_cy * processing_cost_cy
     
-    # Equipment cost for loading (excavator + loader during haul days)
+    # Equipment cost for loading (excavator + loader during project)
     excavator_rate = 150
     loader_rate = 125
-    equipment_hours = haul_days * work_hours_per_day
+    equipment_hours = project_days * work_hours_per_day
     equipment_cost = (excavator_rate + loader_rate) * equipment_hours
     
     total_cost = trucking_cost + processing_cost + equipment_cost
     cost_per_cy = total_cost / volume_cy
-    
-    # Timeline: haul days + facility processing
-    facility_turnaround = facility['typical_turnaround_days']
-    total_project_days = haul_days + facility_turnaround
     
     # CO2 (trucking + loading equipment)
     truck_fuel_gph = 4
@@ -948,7 +947,7 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
         'option_name': 'Clean Futures Surface Facility',
         'total_cost': total_cost,
         'cost_per_cy': cost_per_cy,
-        'project_days': total_project_days,
+        'project_days': project_days,  # Just haul days - no treatment wait!
         'facility_name': facility['facility_name'],
         'distance_miles': distance_miles,
         'trucking_cost': trucking_cost,
@@ -962,8 +961,6 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
         'truck_capacity_per_day': truck_capacity_per_day,
         'equipment_capacity_per_day': equipment_capacity_per_day,
         'actual_daily_capacity': actual_daily_capacity,
-        'haul_days': haul_days,
-        'facility_turnaround_days': facility_turnaround,
         'num_trucks': num_trucks,
         'num_trips': num_trips,
         'trip_time_hours': trip_time
@@ -1749,6 +1746,19 @@ This rate includes:
         sf = surface
         if sf:
             st.markdown(f"""
+**How Surface Facilities Work:**
+
+Unlike landfills, Clean Futures Surface Facilities provide **immediate backfill exchange**:
+1. Operator arrives with contaminated soil
+2. Drops off contaminated soil
+3. **Picks up clean backfill** (from previously treated stockpile)
+4. Returns to site with clean backfill
+5. ✅ **Done!** No waiting for treatment.
+
+Clean Futures treats the dropped-off soil behind the scenes and adds it to the stockpile for future use.
+
+---
+
 **Parameters Used:**
 | Parameter | Value |
 |-----------|-------|
@@ -1767,29 +1777,30 @@ This rate includes:
 
 1. **Trip Time:**
    - Travel time (one way) = {sf['distance_miles']:.1f} mi ÷ 45 mph = {sf['distance_miles']/45:.2f} hours
-   - Trip time = Load (0.25 hr) + Travel ({sf['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({sf['distance_miles']/45:.2f} hr) + Load clean soil (0.25 hr)
+   - Trip = Load at site (0.25 hr) + Travel ({sf['distance_miles']/45:.2f} hr) + Exchange at facility (0.5 hr) + Return ({sf['distance_miles']/45:.2f} hr) + Unload backfill (0.25 hr)
    - **Total trip time = {sf.get('trip_time_hours', 0):.2f} hours**
 
 2. **Bottleneck Analysis:**
    - Truck capacity/day = {10/sf.get('trip_time_hours', 1):.1f} trips/truck × {sf.get('num_trucks', 3)} trucks × 18 CY = **{sf.get('truck_capacity_per_day', 0):.0f} CY/day**
-   - Equipment capacity/day = **{sf.get('equipment_capacity_per_day', 300):.0f} CY/day** (based on your selection)
+   - Equipment capacity/day = **{sf.get('equipment_capacity_per_day', 300):.0f} CY/day**
    - ⚡ **BOTTLENECK: {sf.get('bottleneck', 'N/A')}** → Actual daily capacity = **{sf.get('actual_daily_capacity', 0):.0f} CY/day**
 
-3. **Duration:**
-   - Haul days = {analysis['volume_cy']:,.0f} CY ÷ {sf.get('actual_daily_capacity', 1):.0f} CY/day = **{sf.get('haul_days', 0)} days**
-   - Facility processing = **{sf.get('facility_turnaround_days', 30)} days**
-   - **Total project = {sf['project_days']} days**
+3. **Timeline:**
+   - Project days = {analysis['volume_cy']:,.0f} CY ÷ {sf.get('actual_daily_capacity', 1):.0f} CY/day = **{sf['project_days']} days**
+   - ✅ **No treatment wait** - backfill picked up same trip!
 
 4. **Costs:**
-   - Equipment (loading) = ($150 + $125) × {sf.get('haul_days', 0)} days × 10 hrs = **${sf.get('equipment_cost', 0):,.0f}**
+   - Equipment (loading) = ($150 + $125) × {sf['project_days']} days × 10 hrs = **${sf.get('equipment_cost', 0):,.0f}**
    - Trucking = {sf.get('num_trips', 0)} trips × {sf.get('trip_time_hours', 0):.2f} hrs × $85/hr = **${sf['trucking_cost']:,.0f}**
    - Processing = {analysis['volume_cy']:,.0f} CY × $25/CY = **${sf['processing_cost']:,.0f}**
 
 5. **TOTAL = ${sf['total_cost']:,.0f}** (${sf['cost_per_cy']:.2f}/CY)
 
-**Notes:**
-- Clean treated soil is returned to your site (backfill included)
-- No long-term disposal liability
+**Advantages over Landfill:**
+- ✅ Same timeline as Dig & Haul (just hauling days)
+- ✅ Backfill included - no separate sourcing needed
+- ✅ No long-term disposal liability
+- ✅ Environmentally friendly (soil treated, not buried)
             """)
         else:
             st.write("No Clean Futures facility found.")
@@ -1836,16 +1847,17 @@ This rate includes:
         },
         'surface': {
             'pros': [
-                'Clean soil returned',
-                'Controlled environment',
+                'Same fast timeline as landfill',
+                'Backfill included (pick up same trip)',
                 'No disposal liability',
-                'Single vendor solution',
-                'Good for complex contamination'
+                'No backfill sourcing hassle',
+                'Environmentally friendly',
+                'Single vendor solution'
             ],
             'cons': [
                 'Transportation both ways',
-                'Facility scheduling',
-                'Moderate timeline'
+                'Processing fee applies',
+                'Facility must be nearby'
             ]
         }
     }
@@ -1898,13 +1910,13 @@ This rate includes:
         """)
     else:  # surface
         st.success("""
-            **Surface Facility Treatment** is recommended for your project because:
-            - Balanced cost and timeline
-            - Clean soil returned to site (no backfill sourcing needed)
-            - Professional treatment in controlled environment
-            - No disposal liability
-            - Facility proximity makes transportation economical
-            - Excellent for sites requiring backfill
+            **Surface Facility** is recommended for your project because:
+            - Fast execution (same as Dig & Haul - no treatment wait!)
+            - Backfill included - pick up clean soil on the same trip
+            - No backfill sourcing hassle or coordination
+            - No long-term disposal liability (soil treated, not buried)
+            - Environmentally friendly alternative to landfill
+            - Facility proximity makes this cost-effective
         """)
     
     # ========================================================================
