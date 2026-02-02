@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 
 import streamlit as st
 import pandas as pd
@@ -650,6 +650,7 @@ def calculate_co2_emissions(fuel_gallons):
 def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill, 
                           tph_level, chloride_level, db, 
                           num_trucks=3, equipment_capacity_per_day=300,
+                          landfill_has_backfill=False, extra_backfill_minutes=0,
                           advanced_params=None):
     """
     Calculate costs and metrics for Dig & Haul option.
@@ -658,6 +659,11 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
     - Truck capacity/day = (trips per truck per day) × num_trucks × truck_capacity_cy
     - Equipment capacity/day = from input (simple) or calculated (advanced)
     - Actual daily capacity = MIN(truck capacity, equipment capacity)
+    
+    Backfill logic:
+    - If landfill has backfill: no extra time needed
+    - If landfill does NOT have backfill: add extra_backfill_minutes to each trip
+    - Extra travel time affects: trip duration, project timeline, trucking cost, CO2
     
     This math aligns with Advanced Mode where users can specify detailed equipment.
     """
@@ -705,9 +711,20 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
     # Trip time calculation
     avg_speed_mph = 45
     travel_time_hours = distance_miles / avg_speed_mph
-    loading_time = 0.25  # 15 min to load truck
-    unloading_time = 0.5  # 30 min at landfill
-    trip_time = loading_time + travel_time_hours + unloading_time + travel_time_hours + loading_time
+    loading_time = 0.25  # 15 min to load truck at site
+    unloading_time = 0.5  # 30 min at landfill (drop off + pick up backfill if available)
+    
+    # Base trip time (assuming backfill at landfill)
+    base_trip_time = loading_time + travel_time_hours + unloading_time + travel_time_hours + loading_time
+    
+    # Extra time if backfill NOT at landfill
+    if needs_backfill and not landfill_has_backfill:
+        extra_backfill_hours = extra_backfill_minutes / 60.0
+    else:
+        extra_backfill_hours = 0
+    
+    # Total trip time includes extra backfill sourcing time
+    trip_time = base_trip_time + extra_backfill_hours
     
     # BOTTLENECK ANALYSIS
     # Calculate truck capacity per day
@@ -733,7 +750,7 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
     # Equipment runs for project duration
     equipment_cost = (excavator_rate + loader_rate) * project_hours
     
-    # Trucking cost based on actual trips needed
+    # Trucking cost based on actual trips needed (includes extra backfill time)
     total_truck_hours = num_trips * trip_time
     trucking_cost = total_truck_hours * truck_hourly_rate
     
@@ -749,11 +766,23 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
     loader_fuel_gph = 5
     truck_fuel_gph = 4
     
+    # Base fuel consumption
+    base_truck_hours = num_trips * base_trip_time
+    base_truck_fuel = truck_fuel_gph * base_truck_hours
+    
+    # Extra fuel from backfill sourcing trips
+    extra_backfill_truck_hours = num_trips * extra_backfill_hours
+    extra_backfill_fuel = truck_fuel_gph * extra_backfill_truck_hours
+    
     total_fuel = (excavator_fuel_gph * project_hours + 
                   loader_fuel_gph * project_hours +
-                  truck_fuel_gph * total_truck_hours)
+                  base_truck_fuel +
+                  extra_backfill_fuel)
     
     co2_lbs, co2_tons = calculate_co2_emissions(total_fuel)
+    
+    # Also calculate CO2 breakdown for display
+    _, extra_backfill_co2_tons = calculate_co2_emissions(extra_backfill_fuel)
     
     return {
         'option_name': 'Dig & Haul to Landfill',
@@ -768,7 +797,7 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
         'disposal_cost': disposal_total,
         'backfill_cost': backfill_total,
         'includes_backfill': needs_backfill,
-        'backfill_available_at_landfill': landfill['backfill_available'],
+        'backfill_available_at_landfill': landfill_has_backfill,
         # Bottleneck info
         'bottleneck': bottleneck,
         'truck_capacity_per_day': truck_capacity_per_day,
@@ -776,7 +805,11 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
         'actual_daily_capacity': actual_daily_capacity,
         'num_trucks': num_trucks,
         'num_trips': num_trips,
-        'trip_time_hours': trip_time
+        'trip_time_hours': trip_time,
+        'base_trip_time_hours': base_trip_time,
+        # Extra backfill info
+        'extra_backfill_minutes': extra_backfill_minutes if needs_backfill and not landfill_has_backfill else 0,
+        'extra_backfill_co2_tons': extra_backfill_co2_tons
     }
 
 def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeability='medium',
@@ -1128,6 +1161,26 @@ def show_simple_questionnaire():
         st.session_state.mode = None
         st.rerun()
     
+    # =========================================================================
+    # SITE DIMENSIONS - Outside form for dynamic volume calculation
+    # =========================================================================
+    st.markdown("### 📏 Site Dimensions")
+    col1, col2, col3 = st.columns([2, 2, 2])
+    with col1:
+        surface_area = st.number_input("Surface Area (square feet)", value=5000, min_value=100, key="surface_area")
+    with col2:
+        depth = st.number_input("Depth of Contamination (feet)", value=5.0, min_value=0.5, max_value=30.0, step=0.5, key="depth")
+    with col3:
+        # Dynamic volume calculation
+        volume_cy = calculate_volume_cy(surface_area, depth)
+        st.markdown("**Estimated Volume**")
+        st.markdown(f"### 📦 {volume_cy:,.0f} CY")
+    
+    st.markdown("---")
+    
+    # =========================================================================
+    # REST OF FORM
+    # =========================================================================
     with st.form("simple_form"):
         st.markdown("### 📍 Site Location")
         col1, col2 = st.columns(2)
@@ -1160,16 +1213,6 @@ def show_simple_questionnaire():
                 help="Enter 0 if not applicable"
             )
         
-        st.markdown("### 📏 Site Dimensions")
-        col1, col2 = st.columns(2)
-        with col1:
-            surface_area = st.number_input("Surface Area (square feet)", value=5000, min_value=100)
-        with col2:
-            depth = st.number_input("Depth of Contamination (feet)", value=5.0, min_value=0.5, max_value=30.0, step=0.5)
-        
-        volume_cy = calculate_volume_cy(surface_area, depth)
-        st.info(f"📦 **Estimated Volume:** {volume_cy:,.0f} cubic yards")
-        
         st.markdown("### 🚛 Trucking & Equipment")
         col1, col2 = st.columns(2)
         with col1:
@@ -1194,6 +1237,35 @@ def show_simple_questionnaire():
         else:
             equipment_capacity_per_day = 500  # CY/day
         
+        st.markdown("### 🔄 Backfill Options")
+        needs_backfill = st.checkbox("Clean backfill required", value=True)
+        
+        if needs_backfill:
+            st.markdown("**For Dig & Haul option:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                landfill_has_backfill = st.toggle(
+                    "Landfill has backfill available?",
+                    value=False,
+                    help="Most landfills do NOT have backfill on-site. If unchecked, you'll need to pick up backfill elsewhere."
+                )
+            with col2:
+                if not landfill_has_backfill:
+                    extra_backfill_minutes = st.slider(
+                        "Extra time for backfill pickup (minutes)",
+                        min_value=0,
+                        max_value=120,
+                        value=30,
+                        step=5,
+                        help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)"
+                    )
+                else:
+                    extra_backfill_minutes = 0
+                    st.info("✅ Backfill at landfill - no extra trip needed")
+        else:
+            landfill_has_backfill = False
+            extra_backfill_minutes = 0
+        
         st.markdown("### 🎯 Project Priorities")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -1208,8 +1280,6 @@ def show_simple_questionnaire():
             esg_priority = st.select_slider("ESG/Sustainability",
                                            options=['low', 'medium', 'high'],
                                            value='medium')
-        
-        needs_backfill = st.checkbox("Clean backfill required", value=True)
         
         submitted = st.form_submit_button("🔍 Analyze Solutions", type="primary", use_container_width=True)
         
@@ -1226,6 +1296,8 @@ def show_simple_questionnaire():
                 'chloride_level': final_chloride,
                 'volume_cy': volume_cy,
                 'needs_backfill': needs_backfill,
+                'landfill_has_backfill': landfill_has_backfill,
+                'extra_backfill_minutes': extra_backfill_minutes,
                 'num_trucks': num_trucks,
                 'equipment_capacity_per_day': equipment_capacity_per_day,
                 'priorities': {
@@ -1483,6 +1555,8 @@ def show_results():
         # Get truck and equipment params (with defaults for backward compatibility)
         num_trucks = analysis.get('num_trucks', 3)
         equipment_capacity_per_day = analysis.get('equipment_capacity_per_day', 300)
+        landfill_has_backfill = analysis.get('landfill_has_backfill', False)
+        extra_backfill_minutes = analysis.get('extra_backfill_minutes', 0)
         
         dig_haul = calculate_dig_and_haul(
             analysis['volume_cy'],
@@ -1494,6 +1568,8 @@ def show_results():
             db,
             num_trucks=num_trucks,
             equipment_capacity_per_day=equipment_capacity_per_day,
+            landfill_has_backfill=landfill_has_backfill,
+            extra_backfill_minutes=extra_backfill_minutes,
             advanced_params=analysis['advanced_params']
         )
         
@@ -1546,8 +1622,12 @@ def show_results():
         # Build key details string
         if opt_type == 'dig_haul':
             key_details = f"→ {opt['landfill_name']}\n({opt['distance_miles']:.0f} mi)"
-            if not opt.get('backfill_available_at_landfill'):
-                key_details += "\n⚠️ Separate backfill source needed"
+            if not opt.get('backfill_available_at_landfill') and analysis.get('needs_backfill', True):
+                extra_mins = opt.get('extra_backfill_minutes', 0)
+                if extra_mins > 0:
+                    key_details += f"\n⚠️ +{extra_mins} min/trip for backfill"
+                else:
+                    key_details += "\n⚠️ Separate backfill source"
             disposal_liability = "Permanent"
         elif opt_type == 'onsite':
             key_details = "Treated on your site\nSoil stays in place"
@@ -1665,6 +1745,19 @@ def show_results():
     with st.expander("**Dig & Haul to Landfill** - Calculation Details", expanded=False):
         dh = dig_haul
         if dh:
+            # Determine backfill source info
+            extra_bf_mins = dh.get('extra_backfill_minutes', 0)
+            if analysis.get('needs_backfill', True):
+                if dh.get('backfill_available_at_landfill', False):
+                    backfill_source = "✅ At landfill (no extra trip)"
+                    extra_time_note = ""
+                else:
+                    backfill_source = "⚠️ Separate source required"
+                    extra_time_note = f" + **{extra_bf_mins} min backfill pickup**" if extra_bf_mins > 0 else ""
+            else:
+                backfill_source = "Not required"
+                extra_time_note = ""
+            
             st.markdown(f"""
 **Parameters Used:**
 | Parameter | Value |
@@ -1681,12 +1774,14 @@ def show_results():
 | Travel Speed | 45 mph |
 | Disposal Cost | $25/CY |
 | Backfill Cost | $10/CY |
+| **Backfill Source** | **{backfill_source}** |
 
 **Step-by-Step Calculation:**
 
 1. **Trip Time:**
    - Travel time (one way) = {dh['distance_miles']:.1f} mi ÷ 45 mph = {dh['distance_miles']/45:.2f} hours
-   - Trip time = Load (0.25 hr) + Travel ({dh['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({dh['distance_miles']/45:.2f} hr) + Load backfill (0.25 hr)
+   - Base trip = Load (0.25 hr) + Travel ({dh['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({dh['distance_miles']/45:.2f} hr) + Unload backfill (0.25 hr)
+   - Base trip time = {dh.get('base_trip_time_hours', dh.get('trip_time_hours', 0)):.2f} hours{extra_time_note}
    - **Total trip time = {dh.get('trip_time_hours', 0):.2f} hours**
 
 2. **Bottleneck Analysis:**
@@ -1705,6 +1800,9 @@ def show_results():
    - Backfill = {analysis['volume_cy']:,.0f} CY × $10 = **${dh['backfill_cost']:,.0f}**
 
 5. **TOTAL = ${dh['total_cost']:,.0f}** (${dh['cost_per_cy']:.2f}/CY)
+
+6. **CO₂ Emissions:** {dh['co2_tons']:.2f} tons
+   {f"   - *Includes {dh.get('extra_backfill_co2_tons', 0):.2f} tons from backfill sourcing trips*" if extra_bf_mins > 0 else ""}
             """)
         else:
             st.write("No qualified landfill found for this contamination level.")
