@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 
 import streamlit as st
 import pandas as pd
@@ -1250,18 +1250,18 @@ def show_simple_questionnaire():
                     help="Most landfills do NOT have backfill on-site. If unchecked, you'll need to pick up backfill elsewhere."
                 )
             with col2:
-                if not landfill_has_backfill:
-                    extra_backfill_minutes = st.slider(
-                        "Extra time for backfill pickup (minutes)",
-                        min_value=0,
-                        max_value=120,
-                        value=30,
-                        step=5,
-                        help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)"
-                    )
-                else:
-                    extra_backfill_minutes = 0
-                    st.info("✅ Backfill at landfill - no extra trip needed")
+                # Always show slider, but disable when landfill has backfill
+                extra_backfill_minutes = st.slider(
+                    "Extra time for backfill pickup (minutes)",
+                    min_value=0,
+                    max_value=120,
+                    value=30 if not landfill_has_backfill else 0,
+                    step=5,
+                    help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)",
+                    disabled=landfill_has_backfill
+                )
+                if landfill_has_backfill:
+                    st.caption("✅ Backfill at landfill - no extra trip needed")
         else:
             landfill_has_backfill = False
             extra_backfill_minutes = 0
@@ -1457,7 +1457,17 @@ def show_results():
     analysis = st.session_state.analysis
     db = load_facilities_database()
     
-    st.markdown("## 🎯 Solution Analysis & Recommendations")
+    # Header with Start Over button
+    col_title, col_button = st.columns([4, 1])
+    with col_title:
+        st.markdown("## 🎯 Solution Analysis & Recommendations")
+    with col_button:
+        if st.button("🔄 Start Over", type="secondary", use_container_width=True):
+            # Clear session state and restart
+            st.session_state.mode = None
+            st.session_state.show_results = False
+            st.session_state.analysis = None
+            st.rerun()
     
     # ========================================================================
     # LOCATION SUMMARY
@@ -2051,8 +2061,10 @@ Clean Futures treats the dropped-off soil behind the scenes and adds it to the s
         )
     
     with col2:
-        if st.button("🔄 New Analysis", use_container_width=True):
-            st.session_state.clear()
+        if st.button("🔄 Start Over", use_container_width=True, key="start_over_bottom"):
+            st.session_state.mode = None
+            st.session_state.show_results = False
+            st.session_state.analysis = None
             st.rerun()
 
 # ============================================================================
