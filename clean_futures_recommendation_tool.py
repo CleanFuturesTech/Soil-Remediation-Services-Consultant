@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 import streamlit as st
 import pandas as pd
@@ -648,8 +648,19 @@ def calculate_co2_emissions(fuel_gallons):
     return co2_lbs, co2_tons
 
 def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill, 
-                          tph_level, chloride_level, db, advanced_params=None):
-    """Calculate costs and metrics for Dig & Haul option"""
+                          tph_level, chloride_level, db, 
+                          num_trucks=3, equipment_capacity_per_day=300,
+                          advanced_params=None):
+    """
+    Calculate costs and metrics for Dig & Haul option.
+    
+    Implements bottleneck analysis:
+    - Truck capacity/day = (trips per truck per day) × num_trucks × truck_capacity_cy
+    - Equipment capacity/day = from input (simple) or calculated (advanced)
+    - Actual daily capacity = MIN(truck capacity, equipment capacity)
+    
+    This math aligns with Advanced Mode where users can specify detailed equipment.
+    """
     
     # Find nearest qualified landfill
     nearest_lf = find_nearest_qualified_landfill(site_lat, site_lon, tph_level, 
@@ -663,64 +674,83 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
     
     # Use advanced parameters or defaults
     if advanced_params:
-        truck_capacity = advanced_params.get('truck_capacity_cy', 18)
-        num_trucks = advanced_params.get('num_trucks', 3)
+        truck_capacity_cy = advanced_params.get('truck_capacity_cy', 18)
+        num_trucks = advanced_params.get('num_trucks', num_trucks)
         truck_hourly_rate = advanced_params.get('truck_hourly_rate', 85)
         excavator_rate = advanced_params.get('excavator_rate', 150)
         loader_rate = advanced_params.get('loader_rate', 125)
         work_hours_per_day = advanced_params.get('work_hours_per_day', 10)
         disposal_cost = advanced_params.get('disposal_cost_cy', landfill['disposal_cost_cy'])
-        backfill_cost = advanced_params.get('backfill_cost_cy', landfill['backfill_cost_cy'])
+        backfill_cost = advanced_params.get('backfill_cost_cy', 10)
+        # Advanced mode: calculate equipment capacity from detailed specs
+        excavator_capacity_cy_hr = advanced_params.get('excavator_capacity_cy_hr', 40)
+        loader_capacity_cy_hr = advanced_params.get('loader_capacity_cy_hr', 35)
+        num_excavators = advanced_params.get('num_excavators', 1)
+        num_loaders = advanced_params.get('num_loaders', 1)
+        equipment_capacity_per_day = min(
+            excavator_capacity_cy_hr * num_excavators,
+            loader_capacity_cy_hr * num_loaders
+        ) * work_hours_per_day
     else:
-        # Default parameters
-        truck_capacity = 18
-        num_trucks = 3
+        # Simple mode defaults
+        truck_capacity_cy = 18
         truck_hourly_rate = 85
         excavator_rate = 150
         loader_rate = 125
         work_hours_per_day = 10
         disposal_cost = landfill['disposal_cost_cy']
         backfill_cost = 10 if needs_backfill else 0  # Always $10/CY in simple mode
+        # equipment_capacity_per_day comes from function parameter (user selection)
     
-    # Trip time calculation (simplified)
+    # Trip time calculation
     avg_speed_mph = 45
     travel_time_hours = distance_miles / avg_speed_mph
-    loading_time = 0.25
-    unloading_time = 0.5
+    loading_time = 0.25  # 15 min to load truck
+    unloading_time = 0.5  # 30 min at landfill
     trip_time = loading_time + travel_time_hours + unloading_time + travel_time_hours + loading_time
     
-    # Calculate number of trips and duration
-    num_trips = math.ceil(volume_cy / truck_capacity)
+    # BOTTLENECK ANALYSIS
+    # Calculate truck capacity per day
     trips_per_truck_per_day = work_hours_per_day / trip_time
-    total_trips_per_day = trips_per_truck_per_day * num_trucks
-    project_days = math.ceil(num_trips / total_trips_per_day)
+    truck_capacity_per_day = trips_per_truck_per_day * num_trucks * truck_capacity_cy
+    
+    # Determine bottleneck
+    if truck_capacity_per_day <= equipment_capacity_per_day:
+        bottleneck = "Trucking"
+        actual_daily_capacity = truck_capacity_per_day
+    else:
+        bottleneck = "Loading Equipment"
+        actual_daily_capacity = equipment_capacity_per_day
+    
+    # Calculate duration based on bottleneck
+    project_days = math.ceil(volume_cy / actual_daily_capacity)
     project_hours = project_days * work_hours_per_day
     
-    # Equipment capacity (simplified - assume balanced)
-    excavation_capacity = 40  # CY/hr
-    loading_capacity = 35  # CY/hr
-    equipment_capacity = min(excavation_capacity, loading_capacity)
+    # Number of trips (for cost calculation)
+    num_trips = math.ceil(volume_cy / truck_capacity_cy)
     
-    # Costs
-    total_equipment_hours = project_hours
-    equipment_cost = (excavator_rate + loader_rate) * total_equipment_hours
+    # COSTS
+    # Equipment runs for project duration
+    equipment_cost = (excavator_rate + loader_rate) * project_hours
     
+    # Trucking cost based on actual trips needed
     total_truck_hours = num_trips * trip_time
     trucking_cost = total_truck_hours * truck_hourly_rate
     
+    # Disposal and backfill
     disposal_total = volume_cy * disposal_cost
     backfill_total = volume_cy * backfill_cost if needs_backfill else 0
     
     total_cost = equipment_cost + trucking_cost + disposal_total + backfill_total
     cost_per_cy = total_cost / volume_cy
     
-    # CO2 calculations (simplified)
+    # CO2 calculations
     excavator_fuel_gph = 6
     loader_fuel_gph = 5
     truck_fuel_gph = 4
     
-    total_fuel = (excavator_fuel_gph * total_equipment_hours + 
-                  loader_fuel_gph * total_equipment_hours +
+    total_fuel = (excavator_fuel_gph * project_hours + 
+                  loader_fuel_gph * project_hours +
                   truck_fuel_gph * total_truck_hours)
     
     co2_lbs, co2_tons = calculate_co2_emissions(total_fuel)
@@ -738,7 +768,15 @@ def calculate_dig_and_haul(volume_cy, site_lat, site_lon, needs_backfill,
         'disposal_cost': disposal_total,
         'backfill_cost': backfill_total,
         'includes_backfill': needs_backfill,
-        'backfill_available_at_landfill': landfill['backfill_available']
+        'backfill_available_at_landfill': landfill['backfill_available'],
+        # Bottleneck info
+        'bottleneck': bottleneck,
+        'truck_capacity_per_day': truck_capacity_per_day,
+        'equipment_capacity_per_day': equipment_capacity_per_day,
+        'actual_daily_capacity': actual_daily_capacity,
+        'num_trucks': num_trucks,
+        'num_trips': num_trips,
+        'trip_time_hours': trip_time
     }
 
 def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeability='medium',
@@ -802,8 +840,22 @@ def calculate_onsite_remediation(volume_cy, site_lat, site_lon, soil_permeabilit
     }
 
 def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
-                               tph_level, chloride_level, db, advanced_params=None):
-    """Calculate costs and metrics for Surface Facility option"""
+                               tph_level, chloride_level, db, 
+                               num_trucks=3, equipment_capacity_per_day=300,
+                               advanced_params=None):
+    """
+    Calculate costs and metrics for Surface Facility option.
+    
+    Implements bottleneck analysis for hauling phase:
+    - Truck capacity/day limited by trips and truck count
+    - Equipment capacity/day limits loading speed
+    - Actual daily haul rate = MIN(truck capacity, equipment capacity)
+    
+    Timeline includes:
+    - Days to haul contaminated soil to facility
+    - Facility processing time (30 days)
+    - Clean soil returned (usually batched during processing)
+    """
     
     # Find nearest CF facility
     nearest_cf = find_nearest_cf_facility(site_lat, site_lon, db)
@@ -816,15 +868,26 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
     
     # Transportation parameters
     if advanced_params:
-        truck_capacity = advanced_params.get('truck_capacity_cy', 18)
-        num_trucks = advanced_params.get('num_trucks', 3)
+        truck_capacity_cy = advanced_params.get('truck_capacity_cy', 18)
+        num_trucks = advanced_params.get('num_trucks', num_trucks)
         truck_hourly_rate = advanced_params.get('truck_hourly_rate', 85)
         processing_cost_cy = advanced_params.get('surface_processing_cost_cy', 25)
+        work_hours_per_day = advanced_params.get('work_hours_per_day', 10)
+        # Advanced mode equipment calculation
+        excavator_capacity_cy_hr = advanced_params.get('excavator_capacity_cy_hr', 40)
+        loader_capacity_cy_hr = advanced_params.get('loader_capacity_cy_hr', 35)
+        num_excavators = advanced_params.get('num_excavators', 1)
+        num_loaders = advanced_params.get('num_loaders', 1)
+        equipment_capacity_per_day = min(
+            excavator_capacity_cy_hr * num_excavators,
+            loader_capacity_cy_hr * num_loaders
+        ) * work_hours_per_day
     else:
-        truck_capacity = 18
-        num_trucks = 3
+        truck_capacity_cy = 18
         truck_hourly_rate = 85
         processing_cost_cy = facility['processing_cost_cy']
+        work_hours_per_day = 10
+        # equipment_capacity_per_day comes from function parameter
     
     # Trip calculations
     avg_speed_mph = 45
@@ -832,39 +895,78 @@ def calculate_surface_facility(volume_cy, site_lat, site_lon, needs_backfill,
     loading_time = 0.25
     unloading_time = 0.5
     
-    # Round trip (haul contaminated + return clean)
+    # Round trip time
     trip_time = loading_time + travel_time_hours + unloading_time + travel_time_hours + loading_time
     
-    num_trips = math.ceil(volume_cy / truck_capacity)
+    # BOTTLENECK ANALYSIS
+    # Calculate truck capacity per day
+    trips_per_truck_per_day = work_hours_per_day / trip_time
+    truck_capacity_per_day = trips_per_truck_per_day * num_trucks * truck_capacity_cy
+    
+    # Determine bottleneck
+    if truck_capacity_per_day <= equipment_capacity_per_day:
+        bottleneck = "Trucking"
+        actual_daily_capacity = truck_capacity_per_day
+    else:
+        bottleneck = "Loading Equipment"
+        actual_daily_capacity = equipment_capacity_per_day
+    
+    # Calculate hauling duration
+    haul_days = math.ceil(volume_cy / actual_daily_capacity)
+    
+    # Number of trips
+    num_trips = math.ceil(volume_cy / truck_capacity_cy)
     total_truck_hours = num_trips * trip_time
     
-    # Costs
+    # COSTS
     trucking_cost = total_truck_hours * truck_hourly_rate
     processing_cost = volume_cy * processing_cost_cy
     
-    total_cost = trucking_cost + processing_cost
+    # Equipment cost for loading (excavator + loader during haul days)
+    excavator_rate = 150
+    loader_rate = 125
+    equipment_hours = haul_days * work_hours_per_day
+    equipment_cost = (excavator_rate + loader_rate) * equipment_hours
+    
+    total_cost = trucking_cost + processing_cost + equipment_cost
     cost_per_cy = total_cost / volume_cy
     
-    # Timeline
-    turnaround_days = facility['typical_turnaround_days']
+    # Timeline: haul days + facility processing
+    facility_turnaround = facility['typical_turnaround_days']
+    total_project_days = haul_days + facility_turnaround
     
-    # CO2 (trucking both ways but treatment is efficient)
+    # CO2 (trucking + loading equipment)
     truck_fuel_gph = 4
-    total_fuel = truck_fuel_gph * total_truck_hours
+    excavator_fuel_gph = 6
+    loader_fuel_gph = 5
+    total_fuel = (truck_fuel_gph * total_truck_hours + 
+                  excavator_fuel_gph * equipment_hours +
+                  loader_fuel_gph * equipment_hours)
     co2_lbs, co2_tons = calculate_co2_emissions(total_fuel)
     
     return {
         'option_name': 'Clean Futures Surface Facility',
         'total_cost': total_cost,
         'cost_per_cy': cost_per_cy,
-        'project_days': turnaround_days,
+        'project_days': total_project_days,
         'facility_name': facility['facility_name'],
         'distance_miles': distance_miles,
         'trucking_cost': trucking_cost,
         'processing_cost': processing_cost,
+        'equipment_cost': equipment_cost,
         'co2_tons': co2_tons,
         'includes_backfill': True,
-        'soil_returned_clean': True
+        'soil_returned_clean': True,
+        # Bottleneck info
+        'bottleneck': bottleneck,
+        'truck_capacity_per_day': truck_capacity_per_day,
+        'equipment_capacity_per_day': equipment_capacity_per_day,
+        'actual_daily_capacity': actual_daily_capacity,
+        'haul_days': haul_days,
+        'facility_turnaround_days': facility_turnaround,
+        'num_trucks': num_trucks,
+        'num_trips': num_trips,
+        'trip_time_hours': trip_time
     }
 
 def generate_recommendation(dig_haul, onsite, surface_facility, user_priorities):
@@ -1071,6 +1173,30 @@ def show_simple_questionnaire():
         volume_cy = calculate_volume_cy(surface_area, depth)
         st.info(f"📦 **Estimated Volume:** {volume_cy:,.0f} cubic yards")
         
+        st.markdown("### 🚛 Trucking & Equipment")
+        col1, col2 = st.columns(2)
+        with col1:
+            num_trucks = st.slider(
+                "Number of Trucks Available", 
+                min_value=1, 
+                max_value=10, 
+                value=3,
+                help="How many trucks can haul soil per day?"
+            )
+        with col2:
+            # Standard equipment assumption with simple toggle
+            equipment_size = st.selectbox(
+                "Loading Equipment",
+                ["Standard (1 excavator + 1 loader)", "Heavy (2 excavators + 2 loaders)"],
+                help="Standard equipment can load ~300 CY/day; Heavy can load ~500 CY/day"
+            )
+        
+        # Calculate equipment capacity based on selection
+        if equipment_size == "Standard (1 excavator + 1 loader)":
+            equipment_capacity_per_day = 300  # CY/day
+        else:
+            equipment_capacity_per_day = 500  # CY/day
+        
         st.markdown("### 🎯 Project Priorities")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -1103,6 +1229,8 @@ def show_simple_questionnaire():
                 'chloride_level': final_chloride,
                 'volume_cy': volume_cy,
                 'needs_backfill': needs_backfill,
+                'num_trucks': num_trucks,
+                'equipment_capacity_per_day': equipment_capacity_per_day,
                 'priorities': {
                     'cost': cost_priority,
                     'speed': speed_priority,
@@ -1355,6 +1483,10 @@ def show_results():
     # ========================================================================
     
     with st.spinner("Analyzing remediation options..."):
+        # Get truck and equipment params (with defaults for backward compatibility)
+        num_trucks = analysis.get('num_trucks', 3)
+        equipment_capacity_per_day = analysis.get('equipment_capacity_per_day', 300)
+        
         dig_haul = calculate_dig_and_haul(
             analysis['volume_cy'],
             analysis['site_lat'],
@@ -1363,7 +1495,9 @@ def show_results():
             analysis['tph_level'],
             analysis['chloride_level'],
             db,
-            analysis['advanced_params']
+            num_trucks=num_trucks,
+            equipment_capacity_per_day=equipment_capacity_per_day,
+            advanced_params=analysis['advanced_params']
         )
         
         onsite = calculate_onsite_remediation(
@@ -1384,7 +1518,9 @@ def show_results():
             analysis['tph_level'],
             analysis['chloride_level'],
             db,
-            analysis['advanced_params']
+            num_trucks=num_trucks,
+            equipment_capacity_per_day=equipment_capacity_per_day,
+            advanced_params=analysis['advanced_params']
         )
     
     # Generate recommendation
@@ -1493,11 +1629,13 @@ def show_results():
                     'Disposal': f"${opt['disposal_cost']:,.0f}",
                     'Backfill': f"${opt['backfill_cost']:,.0f}",
                 }
+                # Show bottleneck
+                st.caption(f"⚡ Bottleneck: **{opt.get('bottleneck', 'N/A')}** ({opt.get('actual_daily_capacity', 0):.0f} CY/day)")
             elif opt_type == 'onsite':
                 # Simple mode shows flat rate
                 if opt['mobilization_cost'] == 0 and opt['amendment_cost'] == 0:
                     breakdown = {
-                        f"Flat Rate ({opt.get('rate_per_cy', 30)}/CY)": f"${opt['processing_cost']:,.0f}",
+                        f"Flat Rate (${opt.get('rate_per_cy', 30)}/CY)": f"${opt['processing_cost']:,.0f}",
                     }
                 else:
                     breakdown = {
@@ -1507,9 +1645,12 @@ def show_results():
                     }
             else:  # surface
                 breakdown = {
+                    'Equipment': f"${opt.get('equipment_cost', 0):,.0f}",
                     'Trucking': f"${opt['trucking_cost']:,.0f}",
                     'Processing': f"${opt['processing_cost']:,.0f}",
                 }
+                # Show bottleneck
+                st.caption(f"⚡ Bottleneck: **{opt.get('bottleneck', 'N/A')}** ({opt.get('actual_daily_capacity', 0):.0f} CY/day)")
             
             for category, cost in breakdown.items():
                 st.write(f"• {category}: {cost}")
@@ -1534,7 +1675,8 @@ def show_results():
 | Volume | {analysis['volume_cy']:,.0f} CY |
 | Distance to Landfill | {dh['distance_miles']:.1f} miles |
 | Truck Capacity | 18 CY |
-| Number of Trucks | 3 |
+| Number of Trucks | {dh.get('num_trucks', 3)} |
+| Equipment Capacity | {analysis.get('equipment_capacity_per_day', 300)} CY/day |
 | Truck Hourly Rate | $85/hr |
 | Excavator Rate | $150/hr |
 | Loader Rate | $125/hr |
@@ -1548,20 +1690,24 @@ def show_results():
 1. **Trip Time:**
    - Travel time (one way) = {dh['distance_miles']:.1f} mi ÷ 45 mph = {dh['distance_miles']/45:.2f} hours
    - Trip time = Load (0.25 hr) + Travel ({dh['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({dh['distance_miles']/45:.2f} hr) + Load backfill (0.25 hr)
-   - **Total trip time = {0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25:.2f} hours**
+   - **Total trip time = {dh.get('trip_time_hours', 0):.2f} hours**
 
-2. **Number of Trips & Duration:**
-   - Number of trips = {analysis['volume_cy']:,.0f} CY ÷ 18 CY/truck = **{math.ceil(analysis['volume_cy']/18)} trips**
-   - Trips per truck per day = 10 hrs ÷ {0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25:.2f} hrs = {10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} trips
-   - Total trips per day = {10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} × 3 trucks = {3*10/(0.25 + dh['distance_miles']/45 + 0.5 + dh['distance_miles']/45 + 0.25):.1f} trips/day
+2. **Bottleneck Analysis:**
+   - Truck capacity/day = {10/dh.get('trip_time_hours', 1):.1f} trips/truck × {dh.get('num_trucks', 3)} trucks × 18 CY = **{dh.get('truck_capacity_per_day', 0):.0f} CY/day**
+   - Equipment capacity/day = **{dh.get('equipment_capacity_per_day', 300):.0f} CY/day** (based on your selection)
+   - ⚡ **BOTTLENECK: {dh.get('bottleneck', 'N/A')}** → Actual daily capacity = **{dh.get('actual_daily_capacity', 0):.0f} CY/day**
 
-3. **Costs:**
-   - Equipment = ($150 + $125) × project hours = **${dh['equipment_cost']:,.0f}**
-   - Trucking = trips × trip time × $85/hr = **${dh['trucking_cost']:,.0f}**
+3. **Duration:**
+   - Project days = {analysis['volume_cy']:,.0f} CY ÷ {dh.get('actual_daily_capacity', 1):.0f} CY/day = **{dh['project_days']} days**
+   - Number of trips = {dh.get('num_trips', 0)} trips
+
+4. **Costs:**
+   - Equipment = ($150 + $125) × {dh['project_days']} days × 10 hrs = **${dh['equipment_cost']:,.0f}**
+   - Trucking = {dh.get('num_trips', 0)} trips × {dh.get('trip_time_hours', 0):.2f} hrs × $85/hr = **${dh['trucking_cost']:,.0f}**
    - Disposal = {analysis['volume_cy']:,.0f} CY × $25 = **${dh['disposal_cost']:,.0f}**
    - Backfill = {analysis['volume_cy']:,.0f} CY × $10 = **${dh['backfill_cost']:,.0f}**
 
-4. **TOTAL = ${dh['total_cost']:,.0f}** (${dh['cost_per_cy']:.2f}/CY)
+5. **TOTAL = ${dh['total_cost']:,.0f}** (${dh['cost_per_cy']:.2f}/CY)
             """)
         else:
             st.write("No qualified landfill found for this contamination level.")
@@ -1609,8 +1755,11 @@ This rate includes:
 | Volume | {analysis['volume_cy']:,.0f} CY |
 | Distance to Facility | {sf['distance_miles']:.1f} miles |
 | Truck Capacity | 18 CY |
-| Number of Trucks | 3 |
+| Number of Trucks | {sf.get('num_trucks', 3)} |
+| Equipment Capacity | {analysis.get('equipment_capacity_per_day', 300)} CY/day |
 | Truck Hourly Rate | $85/hr |
+| Excavator Rate | $150/hr |
+| Loader Rate | $125/hr |
 | Processing Cost | $25/CY |
 | Travel Speed | 45 mph |
 
@@ -1619,21 +1768,27 @@ This rate includes:
 1. **Trip Time:**
    - Travel time (one way) = {sf['distance_miles']:.1f} mi ÷ 45 mph = {sf['distance_miles']/45:.2f} hours
    - Trip time = Load (0.25 hr) + Travel ({sf['distance_miles']/45:.2f} hr) + Unload (0.5 hr) + Return ({sf['distance_miles']/45:.2f} hr) + Load clean soil (0.25 hr)
-   - **Total trip time = {0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25:.2f} hours**
+   - **Total trip time = {sf.get('trip_time_hours', 0):.2f} hours**
 
-2. **Trucking:**
-   - Number of trips = {analysis['volume_cy']:,.0f} CY ÷ 18 CY = **{math.ceil(analysis['volume_cy']/18)} trips**
-   - Total truck hours = {math.ceil(analysis['volume_cy']/18)} × {0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25:.2f} = {math.ceil(analysis['volume_cy']/18) * (0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25):.1f} hours
-   - Trucking cost = {math.ceil(analysis['volume_cy']/18) * (0.25 + sf['distance_miles']/45 + 0.5 + sf['distance_miles']/45 + 0.25):.1f} hrs × $85 = **${sf['trucking_cost']:,.0f}**
+2. **Bottleneck Analysis:**
+   - Truck capacity/day = {10/sf.get('trip_time_hours', 1):.1f} trips/truck × {sf.get('num_trucks', 3)} trucks × 18 CY = **{sf.get('truck_capacity_per_day', 0):.0f} CY/day**
+   - Equipment capacity/day = **{sf.get('equipment_capacity_per_day', 300):.0f} CY/day** (based on your selection)
+   - ⚡ **BOTTLENECK: {sf.get('bottleneck', 'N/A')}** → Actual daily capacity = **{sf.get('actual_daily_capacity', 0):.0f} CY/day**
 
-3. **Processing:**
+3. **Duration:**
+   - Haul days = {analysis['volume_cy']:,.0f} CY ÷ {sf.get('actual_daily_capacity', 1):.0f} CY/day = **{sf.get('haul_days', 0)} days**
+   - Facility processing = **{sf.get('facility_turnaround_days', 30)} days**
+   - **Total project = {sf['project_days']} days**
+
+4. **Costs:**
+   - Equipment (loading) = ($150 + $125) × {sf.get('haul_days', 0)} days × 10 hrs = **${sf.get('equipment_cost', 0):,.0f}**
+   - Trucking = {sf.get('num_trips', 0)} trips × {sf.get('trip_time_hours', 0):.2f} hrs × $85/hr = **${sf['trucking_cost']:,.0f}**
    - Processing = {analysis['volume_cy']:,.0f} CY × $25/CY = **${sf['processing_cost']:,.0f}**
 
-4. **TOTAL = ${sf['total_cost']:,.0f}** (${sf['cost_per_cy']:.2f}/CY)
+5. **TOTAL = ${sf['total_cost']:,.0f}** (${sf['cost_per_cy']:.2f}/CY)
 
 **Notes:**
 - Clean treated soil is returned to your site (backfill included)
-- Turnaround time: {sf['project_days']} days at facility
 - No long-term disposal liability
             """)
         else:
