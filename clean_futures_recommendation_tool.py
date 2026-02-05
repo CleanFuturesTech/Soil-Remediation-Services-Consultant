@@ -1250,18 +1250,30 @@ def show_simple_questionnaire():
                     help="Most landfills do NOT have backfill on-site. If unchecked, you'll need to pick up backfill elsewhere."
                 )
             with col2:
-                # Always show slider, but disable when landfill has backfill
-                extra_backfill_minutes = st.slider(
-                    "Extra time for backfill pickup (minutes)",
-                    min_value=0,
-                    max_value=120,
-                    value=30 if not landfill_has_backfill else 0,
-                    step=5,
-                    help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)",
-                    disabled=landfill_has_backfill
-                )
                 if landfill_has_backfill:
+                    # When landfill has backfill, show disabled slider at 0
+                    st.slider(
+                        "Extra time for backfill pickup (minutes)",
+                        min_value=0,
+                        max_value=120,
+                        value=0,
+                        step=5,
+                        disabled=True,
+                        key="backfill_slider_disabled"
+                    )
+                    extra_backfill_minutes = 0
                     st.caption("✅ Backfill at landfill - no extra trip needed")
+                else:
+                    # When landfill doesn't have backfill, show active slider
+                    extra_backfill_minutes = st.slider(
+                        "Extra time for backfill pickup (minutes)",
+                        min_value=0,
+                        max_value=120,
+                        value=30,
+                        step=5,
+                        help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)",
+                        key="backfill_slider_active"
+                    )
         else:
             landfill_has_backfill = False
             extra_backfill_minutes = 0
