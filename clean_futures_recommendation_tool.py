@@ -174,21 +174,38 @@ st.markdown("""
     
     /* Buttons */
     .stButton > button {
-        background: linear-gradient(135deg, #2d7a4f 0%, #1a4d2e 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 8px;
-        font-family: 'Work Sans', sans-serif;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(45, 122, 79, 0.3);
+        background: linear-gradient(135deg, #2d7a4f 0%, #1a4d2e 100%) !important;
+        color: white !important;
+        border: none !important;
+        padding: 0.75rem 2rem !important;
+        border-radius: 8px !important;
+        font-family: 'Work Sans', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(45, 122, 79, 0.3) !important;
+    }
+    
+    /* Ensure button text stays white - target all inner elements */
+    .stButton > button span,
+    .stButton > button p,
+    .stButton > button div,
+    .stButton button span,
+    .stButton button p,
+    .stButton button div,
+    .stButton > button * {
+        color: white !important;
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(45, 122, 79, 0.4);
+        box-shadow: 0 6px 16px rgba(45, 122, 79, 0.4) !important;
+    }
+    
+    .stButton > button:hover span,
+    .stButton > button:hover p,
+    .stButton > button:hover * {
+        color: white !important;
     }
     
     /* Sidebar */
@@ -1094,7 +1111,7 @@ def show_welcome_page():
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Try Simple Mode", key="simple", use_container_width=True):
+        if st.button("Start Simple Mode", key="simple", use_container_width=True):
             st.session_state.mode = 'simple'
             st.rerun()
     
@@ -1111,7 +1128,7 @@ def show_welcome_page():
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Try Advanced Mode", key="advanced", use_container_width=True):
+        if st.button("Start Advanced Mode", key="advanced", use_container_width=True):
             st.session_state.mode = 'advanced'
             st.rerun()
     
@@ -1480,7 +1497,7 @@ def show_results():
     with col_title:
         st.markdown("## 🎯 Solution Analysis & Recommendations")
     with col_button:
-        if st.button("🔄 Reset Calculator", type="secondary", use_container_width=True):
+        if st.button("🔄 Start Over", type="secondary", use_container_width=True):
             # Clear session state and restart
             st.session_state.mode = None
             st.session_state.show_results = False
@@ -2079,7 +2096,7 @@ Clean Futures treats the dropped-off soil behind the scenes and adds it to the s
         )
     
     with col2:
-        if st.button("🔄 Reset Calculator", use_container_width=True, key="start_over_bottom"):
+        if st.button("🔄 Start Over", use_container_width=True, key="start_over_bottom"):
             st.session_state.mode = None
             st.session_state.show_results = False
             st.session_state.analysis = None
