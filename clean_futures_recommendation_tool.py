@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
 
 import streamlit as st
 import pandas as pd
@@ -1094,7 +1094,7 @@ def show_welcome_page():
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Start Simple Mode", key="simple", use_container_width=True):
+        if st.button("Try Simple Mode", key="simple", use_container_width=True):
             st.session_state.mode = 'simple'
             st.rerun()
     
@@ -1111,7 +1111,7 @@ def show_welcome_page():
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Start Advanced Mode", key="advanced", use_container_width=True):
+        if st.button("Try Advanced Mode", key="advanced", use_container_width=True):
             st.session_state.mode = 'advanced'
             st.rerun()
     
@@ -1480,7 +1480,7 @@ def show_results():
     with col_title:
         st.markdown("## 🎯 Solution Analysis & Recommendations")
     with col_button:
-        if st.button("🔄 Start Over", type="secondary", use_container_width=True):
+        if st.button("🔄 Reset Calculator", type="secondary", use_container_width=True):
             # Clear session state and restart
             st.session_state.mode = None
             st.session_state.show_results = False
@@ -2079,7 +2079,7 @@ Clean Futures treats the dropped-off soil behind the scenes and adds it to the s
         )
     
     with col2:
-        if st.button("🔄 Start Over", use_container_width=True, key="start_over_bottom"):
+        if st.button("🔄 Reset Calculator", use_container_width=True, key="start_over_bottom"):
             st.session_state.mode = None
             st.session_state.show_results = False
             st.session_state.analysis = None
