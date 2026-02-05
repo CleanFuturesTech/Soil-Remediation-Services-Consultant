@@ -307,27 +307,81 @@ def get_soil_type(lat, lon, state):
     else:
         return "Sandy Loam / Desert Soils"
 
-def get_regulatory_thresholds(state):
-    """Get soil regulatory thresholds for TPH and Chlorides"""
+def get_regulatory_thresholds(state, groundwater_depth_category=None):
+    """
+    Get soil regulatory thresholds for TPH and Chlorides.
+    
+    Args:
+        state: "Texas" or "New Mexico"
+        groundwater_depth_category: For New Mexico only - one of:
+            - "50_or_less" (groundwater at 50 feet or less)
+            - "51_to_100" (groundwater at 51-100 feet)  
+            - "over_100" (groundwater at >100 feet)
+    
+    Returns:
+        Dictionary with threshold values and regulatory information
+    """
     # Texas TCEQ Protective Concentration Levels (PCLs)
     # New Mexico NMED Soil Screening Levels (SSLs)
     
     if state == "Texas":
         return {
-            'tph_residential_mgkg': 100,
-            'tph_industrial_mgkg': 500,
-            'chloride_soil_mgkg': 'Not directly regulated in soil; groundwater standard: 300 mg/L',
+            'tph_threshold_mgkg': 10000,
+            'tph_residential_mgkg': 10000,
+            'tph_industrial_mgkg': 10000,
+            'chloride_threshold_mgkg': 3000,
+            'chloride_soil_mgkg': '3,000 mg/kg (guidance)',
+            'benzene_threshold_mgkg': 0.026,
             'regulatory_agency': 'TCEQ (Texas Commission on Environmental Quality)',
-            'notes': 'Risk-based, site-specific cleanup levels may vary'
+            'regulation_type': 'Guidance',
+            'groundwater_depth_display': 'N/A (Texas)',
+            'notes': 'Texas uses risk-based guidance levels; site-specific cleanup levels may vary'
         }
-    else:  # New Mexico
-        return {
-            'tph_residential_mgkg': 100,
-            'tph_industrial_mgkg': 1000,
-            'chloride_soil_mgkg': 'Not directly regulated in soil; groundwater standard: 250 mg/L',
-            'regulatory_agency': 'NMED (New Mexico Environment Department)',
-            'notes': 'Risk-based corrective action (RBCA) standards apply'
-        }
+    else:  # New Mexico - thresholds depend on groundwater depth
+        if groundwater_depth_category == "50_or_less":
+            return {
+                'tph_threshold_mgkg': 100,
+                'tph_residential_mgkg': 100,
+                'tph_industrial_mgkg': 100,
+                'chloride_threshold_mgkg': 600,
+                'chloride_soil_mgkg': '600 mg/kg',
+                'benzene_threshold_mgkg': 10,
+                'btex_threshold_mgkg': 50,
+                'regulatory_agency': 'NMED (New Mexico Environment Department)',
+                'regulation_type': 'Regulation',
+                'groundwater_depth_display': '≤50 feet',
+                'notes': 'Strictest thresholds apply when groundwater is shallow (≤50 ft)'
+            }
+        elif groundwater_depth_category == "51_to_100":
+            return {
+                'tph_threshold_mgkg': 2500,
+                'tph_residential_mgkg': 2500,
+                'tph_industrial_mgkg': 2500,
+                'chloride_threshold_mgkg': 10000,
+                'chloride_soil_mgkg': '10,000 mg/kg',
+                'benzene_threshold_mgkg': 10,
+                'btex_threshold_mgkg': 50,
+                'gro_dro_threshold_mgkg': 1000,
+                'regulatory_agency': 'NMED (New Mexico Environment Department)',
+                'regulation_type': 'Regulation',
+                'groundwater_depth_display': '51-100 feet',
+                'notes': 'Moderate thresholds apply for mid-depth groundwater (51-100 ft)'
+            }
+        else:  # over_100 or default
+            return {
+                'tph_threshold_mgkg': 2500,
+                'tph_residential_mgkg': 2500,
+                'tph_industrial_mgkg': 2500,
+                'chloride_threshold_mgkg': 20000,
+                'chloride_soil_mgkg': '20,000 mg/kg',
+                'benzene_threshold_mgkg': 10,
+                'btex_threshold_mgkg': 50,
+                'gro_dro_threshold_mgkg': 1000,
+                'regulatory_agency': 'NMED (New Mexico Environment Department)',
+                'regulation_type': 'Regulation',
+                'groundwater_depth_display': '>100 feet',
+                'notes': 'Less restrictive thresholds apply when groundwater is deep (>100 ft)'
+            }
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculate distance between two GPS coordinates in miles"""
@@ -1243,16 +1297,48 @@ def show_simple_questionnaire():
     st.markdown("---")
     
     # =========================================================================
+    # SITE LOCATION - Outside form for dynamic state detection
+    # =========================================================================
+    st.markdown("### 📍 Site Location")
+    col1, col2 = st.columns(2)
+    with col1:
+        site_lat = st.number_input("Latitude", value=32.2366, min_value=30.0, max_value=35.0, format="%.4f", key="site_lat_simple")
+    with col2:
+        site_lon = st.number_input("Longitude", value=-103.9563, min_value=-105.0, max_value=-100.0, format="%.4f", key="site_lon_simple")
+    
+    # Determine state from longitude and show appropriate info
+    is_new_mexico = site_lon < -103.0
+    state_display = "New Mexico" if is_new_mexico else "Texas"
+    
+    # Show state indicator and groundwater depth dropdown for New Mexico
+    if is_new_mexico:
+        st.info(f"📍 **Site Location:** {state_display} - Groundwater depth affects regulatory thresholds")
+        
+        groundwater_depth = st.selectbox(
+            "Groundwater Depth at Site",
+            options=["50_or_less", "51_to_100", "over_100"],
+            format_func=lambda x: {
+                "50_or_less": "≤50 feet (strictest thresholds)",
+                "51_to_100": "51-100 feet (moderate thresholds)",
+                "over_100": ">100 feet (least restrictive thresholds)"
+            }[x],
+            help="New Mexico regulations vary based on groundwater depth. Shallower groundwater = stricter limits.",
+            key="groundwater_depth_simple"
+        )
+        
+        # Show the applicable thresholds based on selection
+        nm_thresholds = get_regulatory_thresholds("New Mexico", groundwater_depth)
+        st.caption(f"📋 Applicable thresholds: TPH ≤{nm_thresholds['tph_threshold_mgkg']:,} mg/kg, Chloride ≤{nm_thresholds['chloride_threshold_mgkg']:,} mg/kg")
+    else:
+        st.success(f"📍 **Site Location:** {state_display}")
+        groundwater_depth = None  # Not applicable for Texas
+    
+    st.markdown("---")
+    
+    # =========================================================================
     # REST OF FORM
     # =========================================================================
     with st.form("simple_form"):
-        st.markdown("### 📍 Site Location")
-        col1, col2 = st.columns(2)
-        with col1:
-            site_lat = st.number_input("Latitude", value=32.2366, min_value=30.0, max_value=35.0, format="%.4f")
-        with col2:
-            site_lon = st.number_input("Longitude", value=-103.9563, min_value=-105.0, max_value=-100.0, format="%.4f")
-        
         st.markdown("### 🧪 Contamination Details")
         contam_type = st.selectbox("Contamination Type", 
                                    ["TPH Only", "Chloride Only", "Both TPH and Chloride"])
@@ -1327,6 +1413,7 @@ def show_simple_questionnaire():
             st.session_state.analysis = {
                 'site_lat': site_lat,
                 'site_lon': site_lon,
+                'groundwater_depth': groundwater_depth,  # None for Texas, category for NM
                 'tph_level': final_tph,
                 'chloride_level': final_chloride,
                 'volume_cy': volume_cy,
@@ -1362,14 +1449,46 @@ def show_advanced_questionnaire():
         st.session_state.mode = None
         st.rerun()
     
-    with st.form("advanced_form"):
-        st.markdown("### 📍 Site Location")
-        col1, col2 = st.columns(2)
-        with col1:
-            site_lat = st.number_input("Latitude", value=31.9, min_value=30.0, max_value=35.0, format="%.4f")
-        with col2:
-            site_lon = st.number_input("Longitude", value=-102.0, min_value=-105.0, max_value=-100.0, format="%.4f")
+    # =========================================================================
+    # SITE LOCATION - Outside form for dynamic state detection
+    # =========================================================================
+    st.markdown("### 📍 Site Location")
+    col1, col2 = st.columns(2)
+    with col1:
+        site_lat = st.number_input("Latitude", value=31.9, min_value=30.0, max_value=35.0, format="%.4f", key="site_lat_advanced")
+    with col2:
+        site_lon = st.number_input("Longitude", value=-102.0, min_value=-105.0, max_value=-100.0, format="%.4f", key="site_lon_advanced")
+    
+    # Determine state from longitude and show appropriate info
+    is_new_mexico = site_lon < -103.0
+    state_display = "New Mexico" if is_new_mexico else "Texas"
+    
+    # Show state indicator and groundwater depth dropdown for New Mexico
+    if is_new_mexico:
+        st.info(f"📍 **Site Location:** {state_display} - Groundwater depth affects regulatory thresholds")
         
+        groundwater_depth = st.selectbox(
+            "Groundwater Depth at Site",
+            options=["50_or_less", "51_to_100", "over_100"],
+            format_func=lambda x: {
+                "50_or_less": "≤50 feet (strictest thresholds)",
+                "51_to_100": "51-100 feet (moderate thresholds)",
+                "over_100": ">100 feet (least restrictive thresholds)"
+            }[x],
+            help="New Mexico regulations vary based on groundwater depth. Shallower groundwater = stricter limits.",
+            key="groundwater_depth_advanced"
+        )
+        
+        # Show the applicable thresholds based on selection
+        nm_thresholds = get_regulatory_thresholds("New Mexico", groundwater_depth)
+        st.caption(f"📋 Applicable thresholds: TPH ≤{nm_thresholds['tph_threshold_mgkg']:,} mg/kg, Chloride ≤{nm_thresholds['chloride_threshold_mgkg']:,} mg/kg")
+    else:
+        st.success(f"📍 **Site Location:** {state_display}")
+        groundwater_depth = None  # Not applicable for Texas
+    
+    st.markdown("---")
+    
+    with st.form("advanced_form"):
         st.markdown("### 🧪 Contamination Details")
         contam_type = st.selectbox("Contamination Type", 
                                    ["TPH Only", "Chloride Only", "Both TPH and Chloride"])
@@ -1467,6 +1586,7 @@ def show_advanced_questionnaire():
             st.session_state.analysis = {
                 'site_lat': site_lat,
                 'site_lon': site_lon,
+                'groundwater_depth': groundwater_depth,  # None for Texas, category for NM
                 'tph_level': tph_level,
                 'chloride_level': chloride_level,
                 'volume_cy': volume_cy,
@@ -1513,7 +1633,8 @@ def show_results():
     # Get location details
     state, county = determine_state_county(analysis['site_lat'], analysis['site_lon'], db)
     soil_type = get_soil_type(analysis['site_lat'], analysis['site_lon'], state)
-    reg_thresholds = get_regulatory_thresholds(state)
+    groundwater_depth = analysis.get('groundwater_depth', None)  # Get from analysis
+    reg_thresholds = get_regulatory_thresholds(state, groundwater_depth)
     
     # Find nearest qualified landfill for distance
     nearest_lf = find_nearest_qualified_landfill(
@@ -1573,19 +1694,38 @@ def show_results():
     
     # Regulatory information
     with st.expander("📋 Regulatory Thresholds & Standards", expanded=False):
+        # Show groundwater depth info for New Mexico
+        gw_depth_info = ""
+        if state == "New Mexico" and groundwater_depth:
+            gw_depth_info = f"""
+        **Groundwater Depth:** {reg_thresholds['groundwater_depth_display']}
+        """
+        
+        # Determine threshold compliance
+        tph_threshold = reg_thresholds.get('tph_threshold_mgkg', reg_thresholds['tph_industrial_mgkg'])
+        chloride_threshold = reg_thresholds.get('chloride_threshold_mgkg', None)
+        
+        tph_status = '✅ Below threshold' if analysis['tph_level'] <= tph_threshold else '⚠️ Exceeds threshold'
+        
+        if chloride_threshold:
+            chloride_status = '✅ Below threshold' if analysis['chloride_level'] <= chloride_threshold else '⚠️ Exceeds threshold'
+        else:
+            chloride_status = ''
+        
         st.markdown(f"""
         **Regulatory Agency:** {reg_thresholds['regulatory_agency']}
         
-        **TPH (Total Petroleum Hydrocarbons) - Soil Cleanup Standards:**
-        - Residential Use: {reg_thresholds['tph_residential_mgkg']} mg/kg
-        - Industrial/Commercial Use: {reg_thresholds['tph_industrial_mgkg']} mg/kg
+        **Regulation Type:** {reg_thresholds.get('regulation_type', 'Guidance')}
+        {gw_depth_info}
+        **TPH (Total Petroleum Hydrocarbons) Threshold:**
+        - {tph_threshold:,} mg/kg
         
-        **Chlorides:**
+        **Chlorides Threshold:**
         - {reg_thresholds['chloride_soil_mgkg']}
         
-        **Your Site:**
-        - TPH Level: {analysis['tph_level']} mg/kg {'✅ Below industrial threshold' if analysis['tph_level'] < reg_thresholds['tph_industrial_mgkg'] else '⚠️ Exceeds industrial threshold'}
-        - Chloride Level: {analysis['chloride_level']} mg/kg
+        **Your Site Contamination Levels:**
+        - TPH Level: {analysis['tph_level']:,} mg/kg {tph_status}
+        - Chloride Level: {analysis['chloride_level']:,} mg/kg {chloride_status}
         
         *Note: {reg_thresholds['notes']}*
         """)
