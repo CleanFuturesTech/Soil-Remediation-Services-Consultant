@@ -11,7 +11,7 @@ Compares three remediation approaches:
 # ============================================================================
 # VERSION
 # ============================================================================
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 
 import streamlit as st
 import pandas as pd
@@ -1179,6 +1179,53 @@ def show_simple_questionnaire():
     st.markdown("---")
     
     # =========================================================================
+    # BACKFILL OPTIONS - Outside form for dynamic toggle behavior
+    # =========================================================================
+    st.markdown("### 🔄 Backfill Options")
+    needs_backfill = st.checkbox("Clean backfill required", value=True, key="needs_backfill")
+    
+    if needs_backfill:
+        st.markdown("**For Dig & Haul option:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            landfill_has_backfill = st.toggle(
+                "Landfill has backfill available?",
+                value=False,
+                help="Most landfills do NOT have backfill on-site. If unchecked, you'll need to pick up backfill elsewhere.",
+                key="landfill_has_backfill"
+            )
+        with col2:
+            if landfill_has_backfill:
+                # When landfill has backfill, show disabled slider at 0
+                st.slider(
+                    "Extra time for backfill pickup (minutes)",
+                    min_value=0,
+                    max_value=120,
+                    value=0,
+                    step=5,
+                    disabled=True,
+                    key="backfill_slider_disabled"
+                )
+                extra_backfill_minutes = 0
+                st.caption("✅ Backfill at landfill - no extra trip needed")
+            else:
+                # When landfill doesn't have backfill, show active slider
+                extra_backfill_minutes = st.slider(
+                    "Extra time for backfill pickup (minutes)",
+                    min_value=0,
+                    max_value=120,
+                    value=30,
+                    step=5,
+                    help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)",
+                    key="backfill_slider_active"
+                )
+    else:
+        landfill_has_backfill = False
+        extra_backfill_minutes = 0
+    
+    st.markdown("---")
+    
+    # =========================================================================
     # REST OF FORM
     # =========================================================================
     with st.form("simple_form"):
@@ -1236,47 +1283,6 @@ def show_simple_questionnaire():
             equipment_capacity_per_day = 300  # CY/day
         else:
             equipment_capacity_per_day = 500  # CY/day
-        
-        st.markdown("### 🔄 Backfill Options")
-        needs_backfill = st.checkbox("Clean backfill required", value=True)
-        
-        if needs_backfill:
-            st.markdown("**For Dig & Haul option:**")
-            col1, col2 = st.columns(2)
-            with col1:
-                landfill_has_backfill = st.toggle(
-                    "Landfill has backfill available?",
-                    value=False,
-                    help="Most landfills do NOT have backfill on-site. If unchecked, you'll need to pick up backfill elsewhere."
-                )
-            with col2:
-                if landfill_has_backfill:
-                    # When landfill has backfill, show disabled slider at 0
-                    st.slider(
-                        "Extra time for backfill pickup (minutes)",
-                        min_value=0,
-                        max_value=120,
-                        value=0,
-                        step=5,
-                        disabled=True,
-                        key="backfill_slider_disabled"
-                    )
-                    extra_backfill_minutes = 0
-                    st.caption("✅ Backfill at landfill - no extra trip needed")
-                else:
-                    # When landfill doesn't have backfill, show active slider
-                    extra_backfill_minutes = st.slider(
-                        "Extra time for backfill pickup (minutes)",
-                        min_value=0,
-                        max_value=120,
-                        value=30,
-                        step=5,
-                        help="Additional round-trip time to pick up backfill from another source (e.g., quarry, supplier)",
-                        key="backfill_slider_active"
-                    )
-        else:
-            landfill_has_backfill = False
-            extra_backfill_minutes = 0
         
         st.markdown("### 🎯 Project Priorities")
         col1, col2, col3 = st.columns(3)
